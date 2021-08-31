@@ -472,17 +472,17 @@ boolean SFE_UBLOX_GNSS::begin(SPIClass &spiPort, uint8_t csPin, uint32_t spiSpee
   //New in v2.0: allocate memory for the packetCfg payload here - if required. (The user may have called setPacketCfgPayloadSize already)
   if (packetCfgPayloadSize == 0)
     setPacketCfgPayloadSize(MAX_PAYLOAD_SIZE);
-  
+
   createFileBuffer();
-  
+
   //Create the SPI buffer
   if (spiBuffer == NULL) //Memory has not yet been allocated - so use new
   {
     spiBuffer = new uint8_t[getSpiTransactionSize()];
   }
-  
+
   if (spiBuffer == NULL)
-  { 
+  {
     if ((_printDebug == true) || (_printLimitedDebug == true)) // This is important. Print this if doing limited debugging
     {
       _debugSerial->print(F("begin (SPI): memory allocation failed for SPI Buffer!"));
@@ -492,7 +492,7 @@ boolean SFE_UBLOX_GNSS::begin(SPIClass &spiPort, uint8_t csPin, uint32_t spiSpee
   else
   {
     // Initialize/clear the SPI buffer - fill it with 0xFF as this is what is received from the UBLOX module if there's no data to be processed
-    for (uint8_t i = 0; i < getSpiTransactionSize(); i++) 
+    for (uint8_t i = 0; i < getSpiTransactionSize(); i++)
     {
       spiBuffer[i] = 0xFF;
     }
@@ -551,7 +551,7 @@ void SFE_UBLOX_GNSS::setSpiTransactionSize(uint8_t transactionSize)
     spiTransactionSize = transactionSize;
   }
   else
-  { 
+  {
 #ifndef SFE_UBLOX_REDUCED_PROG_MEM
     if (_printDebug == true)
     {
@@ -902,9 +902,9 @@ boolean SFE_UBLOX_GNSS::checkUbloxSerial(ubxPacket *incomingUBX, uint8_t request
 //Checks SPI for data, passing any new bytes to process()
 boolean SFE_UBLOX_GNSS::checkUbloxSpi(ubxPacket *incomingUBX, uint8_t requestedClass, uint8_t requestedID)
 {
-  // Process the contents of the SPI buffer if not empty!  
+  // Process the contents of the SPI buffer if not empty!
   for (uint8_t i = 0; i < spiBufferIndex; i++) {
-    process(spiBuffer[i], incomingUBX, requestedClass, requestedID);        
+    process(spiBuffer[i], incomingUBX, requestedClass, requestedID);
   }
   spiBufferIndex = 0;
 
@@ -916,7 +916,7 @@ boolean SFE_UBLOX_GNSS::checkUbloxSpi(ubxPacket *incomingUBX, uint8_t requestedC
   // which could legitimately contain 0xFF within the data stream. But the currentSentence check will certainly help!
 
   // If we are not receiving a sentence (currentSentence == NONE) and the byteReturned is 0xFF,
-  // i.e. the module has no data for us, then delay for 
+  // i.e. the module has no data for us, then delay for
   if ((byteReturned == 0xFF) && (currentSentence == NONE))
   {
     digitalWrite(_csPin, HIGH);
@@ -926,7 +926,7 @@ boolean SFE_UBLOX_GNSS::checkUbloxSpi(ubxPacket *incomingUBX, uint8_t requestedC
   }
 
   while ((byteReturned != 0xFF) || (currentSentence != NONE))
-  {       
+  {
     process(byteReturned, incomingUBX, requestedClass, requestedID);
     byteReturned = _spiPort->transfer(0xFF);
   }
@@ -958,6 +958,9 @@ boolean SFE_UBLOX_GNSS::checkAutomatic(uint8_t Class, uint8_t ID)
         break;
         case UBX_NAV_ATT:
           if (packetUBXNAVATT != NULL) result = true;
+        break;
+        case UBX_NAV_COV:
+          if( packetUBXNAVCOV != NULL) result = true;
         break;
         case UBX_NAV_PVT:
           if (packetUBXNAVPVT != NULL) result = true;
@@ -1088,6 +1091,9 @@ uint16_t SFE_UBLOX_GNSS::getMaxPayloadSize(uint8_t Class, uint8_t ID)
         break;
         case UBX_NAV_ATT:
           maxSize = UBX_NAV_ATT_LEN;
+        break;
+        case UBX_NAV_COV:
+          maxSize = UBX_NAV_COV_LEN;
         break;
         case UBX_NAV_PVT:
           maxSize = UBX_NAV_PVT_LEN;
@@ -1251,11 +1257,17 @@ void SFE_UBLOX_GNSS::process(uint8_t incoming, ubxPacket *incomingUBX, uint8_t r
       packetBuf.counter = 0;                                   //Reset the packetBuf.counter (again)
       packetBuf.valid = SFE_UBLOX_PACKET_VALIDITY_NOT_DEFINED; // Reset the packet validity (redundant?)
       packetBuf.startingSpot = incomingUBX->startingSpot;      //Copy the startingSpot
+
+
     }
     else if (ubxFrameCounter == 3) //ID
     {
       // Record the ID in packetBuf until we know what to do with it
       packetBuf.id = incoming; // (Duplication)
+      if (_printDebug == true && packetBuf.cls == 0x01 && packetBuf.id == 0x36)
+      {
+        _debugSerial->println("NAV-COV MESSAGE RECEIVED. \n");
+      }
       //We can now identify the type of response
       //If the packet we are receiving is not an ACK then check for a class and ID match
       if (packetBuf.cls != UBX_CLASS_ACK)
@@ -1340,6 +1352,13 @@ void SFE_UBLOX_GNSS::process(uint8_t incoming, ubxPacket *incomingUBX, uint8_t r
         {
           //This is not an ACK and we do not have a class and ID match
           //so we should keep diverting data into packetBuf and ignore the payload
+          if (_printDebug == true)
+          {
+            _debugSerial->print("IGNORING PAYLOAD. CLASS: ");
+            _debugSerial->print(packetBuf.cls, HEX);
+            _debugSerial->print(F(" ID: 0x"));
+            _debugSerial->println(packetBuf.id, HEX);
+          }
           ignoreThisPayload = true;
         }
       }
@@ -2261,6 +2280,51 @@ void SFE_UBLOX_GNSS::processUBXpacket(ubxPacket *msg)
           storePacket(msg);
         }
       }
+    }else if(msg->id == UBX_NAV_COV && msg->len == UBX_NAV_COV_LEN)
+    {
+      if ((_printDebug == true) )
+      {
+        _debugSerial->println("UBX_NAV_COV PARSING! \n");
+      }
+
+      if(packetUBXNAVCOV != NULL)
+      {
+        packetUBXNAVCOV->data.iTOW = extractLong(msg, 0);
+        packetUBXNAVCOV->data.msgVersion = extractByte(msg, 4);
+        packetUBXNAVCOV->data.posCovValid = extractByte(msg, 5);
+        packetUBXNAVCOV->data.velCovValid = extractByte(msg, 6);
+        packetUBXNAVCOV->data.posCovNN = extractFloat(msg, 16);
+        packetUBXNAVCOV->data.posCovNE = extractFloat(msg, 20);
+        packetUBXNAVCOV->data.posCovND = extractFloat(msg, 24);
+        packetUBXNAVCOV->data.posCovEE = extractFloat(msg, 28);
+        packetUBXNAVCOV->data.posCovED = extractFloat(msg, 32);
+        packetUBXNAVCOV->data.posCovDD = extractFloat(msg, 36);
+
+        packetUBXNAVCOV->data.velCovNN = extractFloat(msg, 40);
+        packetUBXNAVCOV->data.velCovNE = extractFloat(msg, 44);
+        packetUBXNAVCOV->data.velCovND = extractFloat(msg, 48);
+        packetUBXNAVCOV->data.velCovEE = extractFloat(msg, 52);
+        packetUBXNAVCOV->data.velCovED = extractFloat(msg, 56);
+        packetUBXNAVCOV->data.velCovDD = extractFloat(msg, 60);
+
+        //Mark all datums as fresh (not read before)
+        packetUBXNAVCOV->moduleQueried.moduleQueried.all = 0xFFFFFFFF;
+
+        //Check if we need to copy the data for the callback
+        if ((packetUBXNAVCOV->callbackData != NULL) // If RAM has been allocated for the copy of the data
+          && (packetUBXNAVCOV->automaticFlags.flags.bits.callbackCopyValid == false)) // AND the data is stale
+        {
+          memcpy(&packetUBXNAVCOV->callbackData->iTOW, &packetUBXNAVCOV->data.iTOW, sizeof(UBX_NAV_COV_data_t));
+          packetUBXNAVCOV->automaticFlags.flags.bits.callbackCopyValid = true;
+        }
+
+        //Check if we need to copy the data into the file buffer
+        if (packetUBXNAVCOV->automaticFlags.flags.bits.addToFileBuffer)
+        {
+          storePacket(msg);
+        }
+      }
+
     }
     else if (msg->id == UBX_NAV_TIMELS && msg->len == UBX_NAV_TIMELS_LEN)
     {
@@ -2985,7 +3049,7 @@ void SFE_UBLOX_GNSS::sendSerialCommand(ubxPacket *outgoingUBX)
 
 // Transfer a byte to SPI. Also capture any bytes received from the UBLOX device during sending and capture them in a small buffer so that
 // they can be processed later with process
-void SFE_UBLOX_GNSS::spiTransfer(uint8_t byteToTransfer) 
+void SFE_UBLOX_GNSS::spiTransfer(uint8_t byteToTransfer)
 {
   uint8_t returnedByte = _spiPort->transfer(byteToTransfer);
   if ((spiBufferIndex < getSpiTransactionSize()) && (returnedByte != 0xFF || currentSentence != NONE))
@@ -2999,14 +3063,14 @@ void SFE_UBLOX_GNSS::spiTransfer(uint8_t byteToTransfer)
 void SFE_UBLOX_GNSS::sendSpiCommand(ubxPacket *outgoingUBX)
 {
   if (spiBuffer == NULL)
-  { 
+  {
     if ((_printDebug == true) || (_printLimitedDebug == true)) // This is important. Print this if doing limited debugging
     {
-      _debugSerial->print(F("sendSpiCommand: no memory allocation for SPI Buffer!"));      
+      _debugSerial->print(F("sendSpiCommand: no memory allocation for SPI Buffer!"));
     }
     return;
   }
-  
+
   // Start at the beginning of the SPI buffer
   spiBufferIndex = 0;
 
@@ -3494,6 +3558,18 @@ void SFE_UBLOX_GNSS::checkCallbacks(void)
     packetUBXNAVATT->callbackPointer(*packetUBXNAVATT->callbackData); // Call the callback
     packetUBXNAVATT->automaticFlags.flags.bits.callbackCopyValid = false; // Mark the data as stale
   }
+
+  if ((packetUBXNAVCOV != NULL) // If RAM has been allocated for message storage
+    && (packetUBXNAVCOV->callbackData != NULL) // If RAM has been allocated for the copy of the data
+    && (packetUBXNAVCOV->callbackPointer != NULL) // If the pointer to the callback has been defined
+    && (packetUBXNAVCOV->automaticFlags.flags.bits.callbackCopyValid == true)) // If the copy of the data is valid
+  {
+    // if (_printDebug == true)
+    //   _debugSerial->println(F("checkCallbacks: calling callback for NAV ATT"));
+    packetUBXNAVCOV->callbackPointer(*packetUBXNAVCOV->callbackData); // Call the callback
+    packetUBXNAVCOV->automaticFlags.flags.bits.callbackCopyValid = false; // Mark the data as stale
+  }
+
 
   if ((packetUBXNAVPVT != NULL) // If RAM has been allocated for message storage
     && (packetUBXNAVPVT->callbackData != NULL) // If RAM has been allocated for the copy of the data
@@ -7425,6 +7501,85 @@ void SFE_UBLOX_GNSS::logNAVCLOCK(boolean enabled)
   packetUBXNAVCLOCK->automaticFlags.flags.bits.addToFileBuffer = (uint8_t)enabled;
 }
 
+// PRIVATE: Allocate RAM for packetUBXNAVCOV and initialize it
+boolean SFE_UBLOX_GNSS::initPacketUBXNAVCOV()
+{
+  packetUBXNAVCOV = new UBX_NAV_COV_t;
+  if(packetUBXNAVCOV == NULL)
+  {
+    if ((_printDebug == true) || (_printLimitedDebug == true)) // This is important. Print this if doing limited debugging
+      _debugSerial->println(F("initPacketUBXNAVCOV: RAM alloc failed!"));
+    return (false);
+  }
+
+  packetUBXNAVCOV->automaticFlags.flags.all = 0;
+  packetUBXNAVCOV->callbackPointer = NULL;
+  packetUBXNAVCOV->callbackData = NULL;
+  packetUBXNAVCOV->moduleQueried.moduleQueried.all = 0;
+
+  return (true);
+}
+
+boolean SFE_UBLOX_GNSS::setAutoNAVCOV(boolean enabled, uint16_t maxWait)
+{
+  return setAutoNAVCOVrate(enabled ? 1 : 0, true, maxWait);
+}
+
+boolean SFE_UBLOX_GNSS::setAutoNAVCOV(boolean enabled, boolean implicitUpdate, uint16_t maxWait)
+{
+  return setAutoNAVCOVrate(enabled ? 1 : 0, implicitUpdate, maxWait);
+}
+
+boolean SFE_UBLOX_GNSS::setAutoNAVCOVrate(uint8_t rate, boolean implicitUpdate, uint16_t maxWait)
+{
+  if(packetUBXNAVCOV == NULL) initPacketUBXNAVCOV();
+  if(packetUBXNAVCOV == NULL)
+    return false; //bail if RAM alocation failed.
+
+  if( rate > 127) rate = 127;
+
+  packetCfg.cls = UBX_CLASS_CFG;
+  packetCfg.id = UBX_CFG_MSG;
+  packetCfg.len = 3;
+  packetCfg.startingSpot = 0;
+  payloadCfg[0] = UBX_CLASS_NAV;
+  payloadCfg[1] = UBX_NAV_COV;
+  payloadCfg[2] = rate; //rate relative to navigation frequency
+
+  boolean ok = ((sendCommand(&packetCfg, maxWait)) == SFE_UBLOX_STATUS_DATA_SENT);
+  if (ok)
+  {
+    packetUBXNAVCOV->automaticFlags.flags.bits.automatic = (rate > 0);
+    packetUBXNAVCOV->automaticFlags.flags.bits.implicitUpdate = implicitUpdate;
+  }
+  packetUBXNAVCOV->moduleQueried.moduleQueried.bits.all = false; //mark all data as stale.
+  return ok;
+}
+
+boolean SFE_UBLOX_GNSS::setAutoNAVCOVcallback(void (*callbackPointer)(UBX_NAV_COV_data_t), uint16_t maxWait)
+{
+  boolean result = setAutoNAVCOV(true, false, maxWait);
+  if(!result)
+  {
+    return (result);
+  }
+
+  if (packetUBXNAVCOV->callbackData == NULL)
+  {
+    packetUBXNAVCOV->callbackData = new UBX_NAV_COV_data_t;
+  }
+
+  if(packetUBXNAVCOV->callbackData == NULL)
+  {
+    if ((_printDebug == true) || (_printLimitedDebug == true)) // This is important. Print this if doing limited debugging
+      _debugSerial->println(F("setAutoNAVCOVcallback: RAM alloc failed!"));
+    return (false);
+  }
+
+  packetUBXNAVCOV->callbackPointer = callbackPointer;
+  return (true);
+}
+
 // ***** NAV TIMELS automatic support
 
 //Reads leap second event information and sets the global variables
@@ -11207,4 +11362,11 @@ int8_t SFE_UBLOX_GNSS::extractSignedChar(ubxPacket *msg, uint8_t spotToStart)
 
   stSignedByte.unsignedByte = extractByte(msg, spotToStart);
   return (stSignedByte.signedByte);
+}
+
+float SFE_UBLOX_GNSS::extractFloat(ubxPacket * msg, uint8_t spotToStart)
+{
+  float value = 0.0;
+  memcpy(&value, &msg->payload[spotToStart], sizeof(float));
+  return value;
 }

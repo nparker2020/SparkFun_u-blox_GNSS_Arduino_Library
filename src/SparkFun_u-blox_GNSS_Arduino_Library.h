@@ -339,6 +339,7 @@ const uint8_t UBX_MON_VER = 0x04;	//Receiver/Software Version. Used for obtainin
 //The following are used to configure the NAV UBX messages (navigation results messages). Descriptions from UBX messages overview (ZED_F9P Interface Description Document page 35-36)
 const uint8_t UBX_NAV_ATT = 0x05;		//Vehicle "Attitude" Solution
 const uint8_t UBX_NAV_CLOCK = 0x22;		//Clock Solution
+const uint8_t UBX_NAV_COV = 0x36;
 const uint8_t UBX_NAV_DOP = 0x04;		//Dilution of precision
 const uint8_t UBX_NAV_EOE = 0x61;		//End of Epoch
 const uint8_t UBX_NAV_GEOFENCE = 0x39;	//Geofencing status. Used to poll the geofence status
@@ -547,7 +548,7 @@ typedef struct
 	bool moduleQueried;
 } moduleSWVersion_t;
 
-const uint16_t DAYS_SINCE_MONTH[4][16] = 
+const uint16_t DAYS_SINCE_MONTH[4][16] =
 {
     {   0,   0,  31,  60,  91, 121, 152, 182, 213, 244, 274, 305, 335, 335, 335, 335 },
     {   0,   0,  31,  59,  90, 120, 151, 181, 212, 243, 273, 304, 334, 334, 334, 334 },
@@ -909,6 +910,13 @@ public:
 	void flushNAVCLOCK(); //Mark all the data as read/stale
 	void logNAVCLOCK(boolean enabled = true); // Log data to file buffer
 
+	boolean setAutoNAVCOV(boolean enabled, uint16_t maxWait = defaultMaxWait);
+	boolean setAutoNAVCOV(boolean enabled, boolean implicitUpdate, uint16_t maxWait = defaultMaxWait); //Enable/disable automatic clock reports at the navigation frequency, with implicitUpdate == false accessing stale data will not issue parsing of data in the rxbuffer of your interface, instead you have to call checkUblox when you want to perform an update
+	boolean setAutoNAVCOVrate(uint8_t rate, boolean implicitUpdate = true, uint16_t maxWait = defaultMaxWait); //Set the rate for automatic CLOCK reports
+	boolean setAutoNAVCOVcallback(void (*callbackPointer)(UBX_NAV_COV_data_t), uint16_t maxWait = defaultMaxWait);
+
+
+
 	// Add "auto" support for NAV SVIN - to avoid needing 'global' storage
 	boolean getSurveyStatus(uint16_t maxWait); //Reads survey in status
 
@@ -1195,7 +1203,7 @@ public:
 	int16_t extractSignedInt(ubxPacket *msg, int8_t spotToStart);
 	uint8_t extractByte(ubxPacket *msg, uint8_t spotToStart); //Get byte from payload
 	int8_t extractSignedChar(ubxPacket *msg, uint8_t spotToStart); //Get signed 8-bit value from payload
-
+	float extractFloat(ubxPacket * msg, uint8_t spotToStart);
 	// Pointers to storage for the "automatic" messages
 	// RAM is allocated for these if/when required.
 
@@ -1210,6 +1218,7 @@ public:
 	UBX_NAV_HPPOSECEF_t *packetUBXNAVHPPOSECEF = NULL; // Pointer to struct. RAM will be allocated for this if/when necessary
 	UBX_NAV_HPPOSLLH_t *packetUBXNAVHPPOSLLH = NULL; // Pointer to struct. RAM will be allocated for this if/when necessary
 	UBX_NAV_CLOCK_t *packetUBXNAVCLOCK = NULL; // Pointer to struct. RAM will be allocated for this if/when necessary
+	UBX_NAV_COV_t *packetUBXNAVCOV = NULL; // Pointer to struct. RAM will be allocated for this if/when necessary
 	UBX_NAV_TIMELS_t *packetUBXNAVTIMELS = NULL; // Pointer to struct. RAM will be allocated for this if/when necessary
 	UBX_NAV_SVIN_t *packetUBXNAVSVIN = NULL; // Pointer to struct. RAM will be allocated for this if/when necessary
 	UBX_NAV_RELPOSNED_t *packetUBXNAVRELPOSNED = NULL; // Pointer to struct. RAM will be allocated for this if/when necessary
@@ -1287,6 +1296,7 @@ private:
 	boolean initPacketUBXNAVHPPOSECEF(); // Allocate RAM for packetUBXNAVHPPOSECEF and initialize it
 	boolean initPacketUBXNAVHPPOSLLH(); // Allocate RAM for packetUBXNAVHPPOSLLH and initialize it
 	boolean initPacketUBXNAVCLOCK(); // Allocate RAM for packetUBXNAVCLOCK and initialize it
+	boolean initPacketUBXNAVCOV(); // Allocate RAM for packetUBXNAVCOV and initialize it
 	boolean initPacketUBXNAVTIMELS(); // Allocate RAM for packetUBXNAVTIMELS and initialize it
 	boolean initPacketUBXNAVSVIN(); // Allocate RAM for packetUBXNAVSVIN and initialize it
 	boolean initPacketUBXNAVRELPOSNED(); // Allocate RAM for packetUBXNAVRELPOSNED and initialize it

@@ -854,6 +854,66 @@ typedef struct
   UBX_NAV_CLOCK_data_t  *callbackData;
 } UBX_NAV_CLOCK_t;
 
+const uint16_t UBX_NAV_COV_LEN = 64;
+
+typedef struct
+{
+  uint32_t iTOW;
+  uint8_t msgVersion;
+  uint8_t posCovValid;
+  uint8_t velCovValid;
+  float posCovNN;
+  float posCovNE;
+  float posCovND;
+  float posCovEE;
+  float posCovED;
+  float posCovDD;
+  float velCovNN;
+  float velCovNE;
+  float velCovND;
+  float velCovEE;
+  float velCovED;
+  float velCovDD;
+} UBX_NAV_COV_data_t;
+
+typedef struct
+{
+  union
+  {
+    uint32_t all;
+    struct
+    {
+      uint32_t all : 1;
+
+      uint32_t iTOW : 1;
+      uint32_t msgVersion : 1;
+      uint32_t posCovValid : 1;
+      uint32_t velCovValid : 1;
+      uint32_t posCovNN : 1;
+      uint32_t posCovNE : 1;
+      uint32_t posCovND : 1;
+      uint32_t posCovEE : 1;
+      uint32_t posCovED : 1;
+      uint32_t posCovDD : 1;
+      uint32_t velCovNN : 1;
+      uint32_t velCovNE : 1;
+      uint32_t velCovND : 1;
+      uint32_t velCovEE : 1;
+      uint32_t velCovED : 1;
+      uint32_t velCovDD : 1;
+    } bits;
+  } moduleQueried;
+} UBX_NAV_COV_moduleQueried_t;
+
+typedef struct
+{
+	ubxAutomaticFlags automaticFlags;
+  UBX_NAV_COV_data_t data;
+  UBX_NAV_COV_moduleQueried_t moduleQueried;
+  void (*callbackPointer)(UBX_NAV_COV_data_t);
+  UBX_NAV_COV_data_t  *callbackData;
+} UBX_NAV_COV_t;
+
 // UBX-NAV-TIMELS (0x01 0x26): Leap second event information
 const uint16_t UBX_NAV_TIMELS_LEN = 24;
 
