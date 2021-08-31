@@ -17,7 +17,7 @@
   </tr>
 </table>
 
-u-blox makes some incredible GNSS receivers covering everything from low-cost, highly configurable modules such as the SAM-M8Q all the way up to the surveyor grade ZED-F9P with precision of the diameter of a dime. This library focuses on configuration and control of u-blox devices over I<sup>2</sup>C (called DDC by u-blox) and Serial. The UBX protocol is supported over both I<sup>2</sup>C and serial, and is a much easier and lighterweight interface to a GNSS module. Stop polling messages and parsing NMEA data! Simply ask for the datums you need and receive an automatic callback when they arrive.
+u-blox makes some incredible GNSS receivers covering everything from low-cost, highly configurable modules such as the SAM-M8Q all the way up to the surveyor grade ZED-F9P with precision of the diameter of a dime. This library supports configuration and control of u-blox devices over I<sup>2</sup>C (called DDC by u-blox), Serial and - as of v2.0.8 (thank you @aberridg) - SPI too! The UBX protocol is a much easier and lighterweight interface to a GNSS module. Stop polling messages and parsing NMEA data! Simply ask for the datums you need and receive an automatic callback when they arrive.
 
 This library can be installed via the Arduino Library manager. Search for **SparkFun u-blox GNSS**.
 
@@ -52,6 +52,32 @@ Migrating to v2.0 is easy. There are two small changes all users will need to ma
   * to: ```#include <SparkFun_u-blox_GNSS_Arduino_Library.h>```
 
 If you are using the Dead Reckoning Sensor Fusion or High Dynamic Rate messages, you will need to make more small changes to your code. Please see the [dead reckoning examples](./examples/Dead_Reckoning) for more details. There is more detail available in [Theory.md](./Theory.md#migrating-your-code-to-v20) if you need it.
+
+## Memory Usage
+
+The u-blox GNSS library has grown considerably over the years and v2.0.8 came very close to completely filling the program memory on platforms like the ATmega328 (Arduino Uno).
+If you want to reduce the amount of memory used by the library, you can edit the header file (_SparkFun_u-blox_GNSS_Arduino_Library.h_) and uncomment line 60:
+
+```
+#define SFE_UBLOX_REDUCED_PROG_MEM // Uncommenting this line will delete the minor debug messages to save memory
+```
+
+Doing this will save approximately 15% of program memory on the ATmega328.
+
+On Windows platforms, you will normally find _SparkFun_u-blox_GNSS_Arduino_Library.h_ in:
+- Documents\Arduino\libraries\SparkFun_u-blox_GNSS_Arduino_Library\src
+
+## SPI Support
+
+In v2.0.8 we added support for SPI, based on a contribution by @aberridg. Thank you Andrew!
+
+We have tested the SPI interface on as many platforms and modules as we could pull together. It works perfectly on most but not quite all combinations.
+For reasons we don't understand yet, the ZED-F9P and Teensy 3.2 don't seem to get along. But Teensy 3.2 and the ZOE-M8Q do play nicely together.
+If you notice a combination that does not seem to work, please raise an [issue](https://github.com/sparkfun/SparkFun_u-blox_GNSS_Arduino_Library/issues) and we will investigate.
+
+The SPI examples have their [own folder](./examples/SPI).
+
+Please check the module datasheets for details on what clock speeds and data rates each module supports. The maximum clock speed is typically 5.5MHz and the maximum transfer rate is typically 125kBytes/s.
 
 ## Max (400kHz) I<sup>2</sup>C Support
 

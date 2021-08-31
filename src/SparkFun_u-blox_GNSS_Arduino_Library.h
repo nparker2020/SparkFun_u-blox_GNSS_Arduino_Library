@@ -51,8 +51,13 @@
 
 #include <Wire.h>
 
+#include <SPI.h>
+
 #include "u-blox_config_keys.h"
 #include "u-blox_structs.h"
+
+//Unomment the next line (or add SFE_UBLOX_REDUCED_PROG_MEM as a compiler directive) to reduce the amount of program memory used by the library
+//#define SFE_UBLOX_REDUCED_PROG_MEM // Uncommenting this line will delete the minor debug messages to save memory
 
 //-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
@@ -492,6 +497,15 @@ enum sfe_ublox_ls_src_e
 //#define MAX_PAYLOAD_SIZE 768 //Worst case: UBX_CFG_VALSET packet with 64 keyIDs each with 64 bit values
 #endif
 
+// For storing SPI bytes received during sendSpiCommand
+#define SFE_UBLOX_SPI_BUFFER_SIZE 128
+
+// Default maximum NMEA byte count
+// maxNMEAByteCount was set to 82: https://en.wikipedia.org/wiki/NMEA_0183#Message_structure
+// but the u-blox HP (RTK) GGA messages are 88 bytes long
+// The user can adjust maxNMEAByteCount by calling setMaxNMEAByteCount
+#define SFE_UBLOX_MAX_NMEA_BYTE_COUNT 88
+
 //-=-=-=-=- UBX binary specific variables
 struct ubxPacket
 {
@@ -560,17 +574,29 @@ public:
 	boolean begin(TwoWire &wirePort = Wire, uint8_t deviceAddress = 0x42); //Returns true if module is detected
 	//serialPort needs to be perviously initialized to correct baud rate
 	boolean begin(Stream &serialPort); //Returns true if module is detected
+	//SPI - supply instance of SPIClass, chip select pin and SPI speed (in Hz)
+	boolean begin(SPIClass &spiPort, uint8_t csPin, uint32_t spiSpeed);
 
 	void end(void); //Stop all automatic message processing. Free all used RAM
 
 	void setI2CpollingWait(uint8_t newPollingWait_ms); // Allow the user to change the I2C polling wait if required
+	void setSPIpollingWait(uint8_t newPollingWait_ms); // Allow the user to change the SPI polling wait if required
+
+	//Set the max number of bytes set in a given I2C transaction
+	uint8_t i2cTransactionSize = 32; //Default to ATmega328 limit
 
 	//Control the size of the internal I2C transaction amount
 	void setI2CTransactionSize(uint8_t bufferSize);
 	uint8_t getI2CTransactionSize(void);
 
-	//Set the max number of bytes set in a given I2C transaction
-	uint8_t i2cTransactionSize = 32; //Default to ATmega328 limit
+	//Control the size of the spi buffer. If the buffer isn't big enough, we'll start to lose bytes
+	//That we receive if the buffer is full!
+	void setSpiTransactionSize(uint8_t bufferSize);
+	uint8_t getSpiTransactionSize(void);
+
+	//Control the size of maxNMEAByteCount
+	void setMaxNMEAByteCount(int8_t newMax);
+	int8_t getMaxNMEAByteCount(void);
 
 	//Returns true if device answers on _gpsI2Caddress address or via Serial
 	boolean isConnected(uint16_t maxWait = 1100);
@@ -612,6 +638,7 @@ public:
 
 	boolean checkUbloxI2C(ubxPacket *incomingUBX, uint8_t requestedClass, uint8_t requestedID);	   //Method for I2C polling of data, passing any new bytes to process()
 	boolean checkUbloxSerial(ubxPacket *incomingUBX, uint8_t requestedClass, uint8_t requestedID); //Method for serial polling of data, passing any new bytes to process()
+	boolean checkUbloxSpi(ubxPacket *incomingUBX, uint8_t requestedClass, uint8_t requestedID); //Method for spi polling of data, passing any new bytes to process()
 
 	// Process the incoming data
 
@@ -622,12 +649,13 @@ public:
 	void processUBX(uint8_t incoming, ubxPacket *incomingUBX, uint8_t requestedClass, uint8_t requestedID); //Given a character, file it away into the uxb packet structure
 	void processUBXpacket(ubxPacket *msg); //Once a packet has been received and validated, identify this packet's class/id and update internal flags
 
-	// Send I2C/Serial commands to the module
+	// Send I2C/Serial/SPI commands to the module
 
 	void calcChecksum(ubxPacket *msg); //Sets the checksumA and checksumB of a given messages
 	sfe_ublox_status_e sendCommand(ubxPacket *outgoingUBX, uint16_t maxWait = defaultMaxWait, boolean expectACKonly = false); //Given a packet and payload, send everything including CRC bytes, return true if we got a response
 	sfe_ublox_status_e sendI2cCommand(ubxPacket *outgoingUBX, uint16_t maxWait = defaultMaxWait);
 	void sendSerialCommand(ubxPacket *outgoingUBX);
+	void sendSpiCommand(ubxPacket *outgoingUBX);
 
 	void printPacket(ubxPacket *packet, boolean alwaysPrintPayload = false); //Useful for debugging
 
@@ -641,7 +669,8 @@ public:
 
 	// Push (e.g.) RTCM data directly to the module
 	// Warning: this function does not check that the data is valid. It is the user's responsibility to ensure the data is valid before pushing.
-	boolean pushRawData(uint8_t *dataBytes, size_t numDataBytes);
+	// Default to using a restart between transmissions. But processors like ESP32 seem to need a stop (#30). Set stop to true to use a stop instead.
+	boolean pushRawData(uint8_t *dataBytes, size_t numDataBytes, boolean stop = false);
 
 	// Support for data logging
 	void setFileBufferSize(uint16_t bufferSize); // Set the size of the file buffer. This must be called _before_ .begin.
@@ -736,6 +765,10 @@ public:
 
 	//Reset ESF automatic IMU-mount alignment
 	boolean resetIMUalignment(uint16_t maxWait = defaultMaxWait);
+
+	//Enable/disable esfAutoAlignment
+	bool getESFAutoAlignment(uint16_t maxWait = defaultMaxWait);
+	bool setESFAutoAlignment(bool enable, uint16_t maxWait = defaultMaxWait);
 
 	//Configure Time Pulse Parameters
 	boolean getTimePulseParameters(UBX_CFG_TP5_data_t *data = NULL, uint16_t maxWait = defaultMaxWait); // Get the time pulse parameters using UBX_CFG_TP5
@@ -1060,6 +1093,7 @@ public:
 
 	bool getDateValid(uint16_t maxWait = defaultMaxWait);
 	bool getTimeValid(uint16_t maxWait = defaultMaxWait);
+	bool getTimeFullyResolved(uint16_t maxWait = defaultMaxWait);
 	bool getConfirmedDate(uint16_t maxWait = defaultMaxWait);
 	bool getConfirmedTime(uint16_t maxWait = defaultMaxWait);
 
@@ -1234,6 +1268,9 @@ private:
 	//Calculate how much RAM is needed to store the payload for a given automatic message
 	uint16_t getMaxPayloadSize(uint8_t Class, uint8_t ID);
 
+	//Do the actual transfer to SPI
+	void spiTransfer(uint8_t byteToTransfer);
+
 	boolean initGeofenceParams(); // Allocate RAM for currentGeofenceParams and initialize it
 	boolean initModuleSWVersion(); // Allocate RAM for moduleSWVersion and initialize it
 
@@ -1272,6 +1309,10 @@ private:
 	Stream *_nmeaOutputPort = NULL; //The user can assign an output port to print NMEA sentences if they wish
 	Stream *_debugSerial;			//The stream to send debug messages to if enabled
 
+	SPIClass *_spiPort;				//The instance of SPIClass
+	uint8_t _csPin;					//The chip select pin
+	uint32_t _spiSpeed;				//The speed to use for SPI (Hz)
+
 	uint8_t _gpsI2Caddress = 0x42; //Default 7-bit unshifted address of the ublox 6/7/8/M8/F9 series
 	//This can be changed using the ublox configuration software
 
@@ -1291,6 +1332,10 @@ private:
 	uint8_t *payloadCfg = NULL;
 	uint8_t *payloadAuto = NULL;
 
+	uint8_t *spiBuffer = NULL; 				// A buffer to store any bytes being recieved back from the device while we are sending via SPI
+	uint8_t spiBufferIndex = 0;				// Index into the SPI buffer
+	uint8_t spiTransactionSize = SFE_UBLOX_SPI_BUFFER_SIZE;	//Default size of the SPI buffer
+
 	//Init the packet structures and init them with pointers to the payloadAck, payloadCfg, payloadBuf and payloadAuto arrays
 	ubxPacket packetAck = {0, 0, 0, 0, 0, payloadAck, 0, 0, SFE_UBLOX_PACKET_VALIDITY_NOT_DEFINED, SFE_UBLOX_PACKET_VALIDITY_NOT_DEFINED};
 	ubxPacket packetBuf = {0, 0, 0, 0, 0, payloadBuf, 0, 0, SFE_UBLOX_PACKET_VALIDITY_NOT_DEFINED, SFE_UBLOX_PACKET_VALIDITY_NOT_DEFINED};
@@ -1307,9 +1352,15 @@ private:
 	sfe_ublox_packet_buffer_e activePacketBuffer = SFE_UBLOX_PACKET_PACKETBUF;
 
 	//Limit checking of new data to every X ms
-	//If we are expecting an update every X Hz then we should check every half that amount of time
+	//If we are expecting an update every X Hz then we should check every quarter that amount of time
 	//Otherwise we may block ourselves from seeing new data
 	uint8_t i2cPollingWait = 100; //Default to 100ms. Adjusted when user calls setNavigationFrequency() or setHNRNavigationRate() or setMeasurementRate()
+	uint8_t i2cPollingWaitNAV = 100; //We need to record the desired polling rate for standard nav messages
+	uint8_t i2cPollingWaitHNR = 100; //and for HNR too so we can set i2cPollingWait to the lower of the two
+
+	//The SPI polling wait is a little different. checkUbloxSpi will delay for this amount before returning if
+	//there is no data waiting to be read. This prevents waitForACKResponse from pounding the SPI bus too hard.
+	uint8_t spiPollingWait = 9; //Default to 9ms; waitForACKResponse delays for 1ms on top of this. User can adjust with setSPIPollingWait.
 
 	unsigned long lastCheck = 0;
 
@@ -1318,7 +1369,9 @@ private:
 	uint8_t rollingChecksumB; //Rolls forward as we receive incoming bytes. Checked against the last two A/B checksum bytes
 
 	int8_t nmeaByteCounter;				//Count all NMEA message bytes.
-	const int8_t maxNMEAByteCount = 82;	// Abort NMEA message reception if nmeaByteCounter exceeds this (https://en.wikipedia.org/wiki/NMEA_0183#Message_structure)
+	// Abort NMEA message reception if nmeaByteCounter exceeds maxNMEAByteCount.
+	// The user can adjust maxNMEAByteCount by calling setMaxNMEAByteCount
+	int8_t maxNMEAByteCount = SFE_UBLOX_MAX_NMEA_BYTE_COUNT;
 	uint8_t nmeaAddressField[6];		// NMEA Address Field - includes the start character (*)
 	boolean logThisNMEA();				// Return true if we should log this NMEA message
 	boolean processThisNMEA();			// Return true if we should pass this NMEA message to processNMEA
